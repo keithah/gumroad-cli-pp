@@ -52,20 +52,28 @@ Always follow these rules:
 
 ## Connect from Claude Desktop / Cursor / Claude Code
 
-- Run `gumroad mcp` to serve the public CLI commands as MCP tools over stdio.
-- Log in first with `gumroad auth login`, or pass `GUMROAD_ACCESS_TOKEN` in the MCP server environment. The server starts without a token, but calls return a login hint until credentials are available.
-
-Add this to your client's MCP configuration (use the absolute path to `gumroad` if it is not on the client's PATH):
+Use `gumroad codemode` for agent MCP access. It exposes one `gumroad` tool that runs bounded JavaScript rather than loading one tool definition per CLI operation.
 
 ```json
-{"mcpServers":{"gumroad":{"command":"gumroad","args":["mcp"]}}}
+{"mcpServers":{"gumroad":{"command":"gumroad","args":["codemode"]}}}
 ```
 
-Tools follow CLI leaf command paths with underscores, including hyphens converted to underscores: `products_list`, `products_view`, `offer_codes_list`, `sales_refund`. Input keys are the original long flag names; repeatable flags take arrays of strings, and positional arguments go in `args` (for example, `{"args":["<product-id>"]}`). Defaults stay with the CLI, and its validators report missing arguments or flags. Runnable groups such as `gumroad user` are exposed too (`user` reads the account); use `user` or `products_list` as a connection check.
+Inside the tool, inspect available operations with `await gumroad.help()`. Read operations execute directly:
 
-Every call uses a fresh command with `--json --no-input --quiet` and automatically passes `--yes` where available. Mutations run immediately, without interactive confirmation; require approval in the MCP client before sending a mutating call. Use `dry-run: true` when supported to preview requests. Auth, admin, completion, skill, help, MCP itself, and hidden/deprecated commands are excluded. The server uses only the seller token, never the admin token.
+```javascript
+await gumroad.products.list()
+await gumroad.sales.list({ limit: 10 })
+```
 
-Only connect trusted clients: tools have the same local file access as the CLI, including uploads and downloads. File paths are on the machine running the server. Stdin-based content input is unavailable; provide file paths or explicit flags instead. HTTP transport is not supported. Annotations are conservative: list/view/get/preview/pull/download-style commands are marked read-only; every other tool (including `licenses_verify`, which increments uses unless `no-increment` is true, `pages_push` and `emails_send`) carries `destructiveHint` so clients ask before running it. They describe the command category, not a security boundary (downloads still write local files).
+Every mutation returns a no-write plan until the call provides an exact second options object of `{confirm: true}`:
+
+```javascript
+await gumroad.products.update({ args: ["<product-id>"], name: "New name" }, {confirm: true})
+```
+
+The runtime permits only the generated `gumroad` namespaces. It has no shell, filesystem, direct-network, process, or credential API. Each call runs with a deadline; oversized values return an explicit `truncated: true` envelope. Authentication is resolved from the CLI’s protected credential store or `GUMROAD_ACCESS_TOKEN`; do not pass a token in JavaScript.
+
+The older `gumroad mcp` command remains compatible but exposes every operation as a separate MCP tool. Prefer Code Mode for agent integrations.
 
 ## Response shapes
 
